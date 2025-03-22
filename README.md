@@ -2,27 +2,32 @@
 
 ![Postgres Edge Proxy](https://img.shields.io/badge/Postgres-Edge%20Proxy-blue?style=for-the-badge&logo=postgresql)
 
-A secure API proxy for PostgreSQL databases that allows controlled access to your Postgres database through a simple, authenticated REST API - similar to [Neon's serverless driver](https://neon.tech/docs/serverless/serverless-driver) but with **your own secure endpoint**.
+A secure API proxy for PostgreSQL databases that allows you to access your own Postgres database from edge functions, serverless environments, and other contexts where direct PostgreSQL connections are not supported.
 
-## 🌟 Features
+## 🌟 The Problem This Solves
 
+Many modern deployment environments (Cloudflare Workers, Vercel Edge Functions, etc.) **cannot connect directly to PostgreSQL** due to network or runtime constraints. This proxy bridges that gap by providing a simple HTTP API to execute SQL queries against your database.
+
+## 🚀 Key Features
+
+- **Self-hosted PostgreSQL proxy** - run close to your database for optimal performance
 - **Secure access** with API key authentication
-- **HTTP API** for database queries - perfect for serverless and edge environments
-- **Compatible** with PostgreSQL and Neon databases
-- **Type-safe** built with TypeScript
-- **Drop-in replacement** for @neondatabase/serverless
+- **HTTP API** for executing SQL queries from anywhere
+- **Edge & serverless compatible** - works where TCP database connections aren't possible
+- **Simple fetch API** with JSON responses
+- **TypeScript support** with full type safety
 
-## 🚀 Why Use Postgres Edge Proxy?
+## 🔐 Why Use This?
 
-- **Security**: Control database access through a protected API gateway
-- **Edge Compatibility**: Connect to PostgreSQL from edge functions or serverless environments
-- **Flexibility**: Run the proxy close to your database for optimal performance
-- **Authorization**: Add API key authentication without modifying your database
+- **Keep database control**: Host your own database proxy instead of using third-party services
+- **Edge deployment**: Connect to your PostgreSQL from environments that don't support direct connections
+- **Security layer**: Add API-key authentication in front of your database
+- **Connection pooling**: Efficiently manage database connections
 
 ## 📋 Prerequisites
 
 - Node.js 18+
-- A PostgreSQL database (works great with [Neon](https://neon.tech))
+- A PostgreSQL database (any provider, including self-hosted)
 
 ## ⚙️ Installation
 
@@ -34,7 +39,7 @@ cd postgres-edge-proxy
 # Install dependencies
 npm install
 
-# Create your .env.local file (see Configuration section)
+# Create your .env.local file with your database credentials and API key
 cp .env .env.local
 
 # Start the development server
@@ -62,19 +67,13 @@ DB_POOL_MAX=20
 DB_IDLE_TIMEOUT=30000
 ```
 
-## 🔐 Security
+## 🌐 Usage Examples
 
-- **Always** use a strong, randomized API key
-- Place the proxy behind a secure gateway or VPN in production
-- Consider running the proxy close to your database for reduced latency
-
-## 🌐 Client Usage
-
-### Option 1: Direct Fetch
+### Simple Client
 
 ```typescript
-// Simple client example
-async function executeQuery(sql, params = []) {
+// Basic client example
+async function queryDatabase(sql, params = []) {
   const response = await fetch('https://your-proxy-url/db-proxy', {
     method: 'POST',
     headers: {
@@ -92,97 +91,52 @@ async function executeQuery(sql, params = []) {
 }
 
 // Usage
-const users = await executeQuery('SELECT * FROM users WHERE id = $1', [123]);
+const users = await queryDatabase('SELECT * FROM users WHERE id = $1', [123]);
 console.log(users.rows);
 ```
 
-### Option 2: Neon Serverless Drop-in Replacement
+### Integration with ORMs
 
-Create a wrapper for the Neon serverless driver that uses your proxy:
+This proxy can be used with any ORM that supports custom database adapters. Here's how you could integrate it with Drizzle ORM:
 
 ```typescript
 // db-client.ts
-import { neon as originalNeon, NeonQueryFunction } from '@neondatabase/serverless';
-
-// Configuration
-const PROXY_URL = process.env.DB_PROXY_URL || 'http://localhost:3001/db-proxy';
-const API_KEY = process.env.DB_API_KEY || '';
-
-export function neon(connectionString: string) {
-  // Keep the original client for fallback
-  const originalClient = originalNeon(connectionString);
+export async function proxyQueryFn(sql: string, params: any[] = []) {
+  const response = await fetch('https://your-proxy-url/db-proxy', {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-API-Key': process.env.DB_API_KEY || '',
+    },
+    body: JSON.stringify({
+      query: sql,
+      params: params
+    }),
+  });
   
-  // Create a proxy client
-  const proxyQueryFn = async (sql: string, params: any[] = []) => {
-    try {
-      const response = await fetch(PROXY_URL, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-API-Key': API_KEY 
-        },
-        body: JSON.stringify({
-          query: sql,
-          params: params
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Database query failed: ${await response.text()}`);
-      }
-      
-      return response.json();
-    } catch (error) {
-      console.error('Database proxy error:', error);
-      // Fall back to original client in development
-      if (process.env.NODE_ENV === 'development') {
-        return originalClient(sql, params);
-      }
-      throw error;
-    }
-  };
-  
-  // Create the final client with transaction support
-  const proxyClient = proxyQueryFn as unknown as NeonQueryFunction<false, false>;
-  proxyClient.transaction = originalClient.transaction;
-  
-  // Copy any other properties
-  const originalAny = originalClient as any;
-  if (originalAny.options !== undefined) {
-    (proxyClient as any).options = originalAny.options;
+  if (!response.ok) {
+    throw new Error(`Database query failed: ${await response.text()}`);
   }
   
-  return proxyClient;
+  return response.json();
 }
-```
 
-### Using with Drizzle ORM
-
-```typescript
-// db.ts
+// Then integrate with your ORM of choice
+// For Drizzle example:
 import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from './db-client';
 import * as schema from './schema';
 
-// Use your proxy client with Drizzle
-const sql = neon(process.env.DATABASE_URL || '');
-export const db = drizzle(sql, { schema });
-
-// Usage in your application
-import { db } from './db';
-import { users } from './schema';
-
-// Now use it like normal Drizzle
-const allUsers = await db.select().from(users);
+const db = drizzle(proxyQueryFn, { schema });
 ```
 
-## 🚢 Deployment
+## 🚢 Deployment Strategies
 
 For optimal performance, deploy the proxy close to your database:
 
-- **AWS**: Deploy in the same region as your RDS or Aurora instance
-- **Vercel/Netlify**: Use a VPC connector to securely access your database
-- **Self-hosted**: Run in the same data center as your database
+- **Self-hosted**: Run on the same network as your PostgreSQL server
+- **Cloud VMs**: Use a small VM in the same region as your database
+- **Kubernetes**: Deploy as a service in your cluster
+- **PaaS**: Use services like Railway, Render, or Fly.io
 
 ## 📝 API Reference
 
@@ -208,7 +162,7 @@ Execute a SQL query against the database.
   "rows": [{"id": 123, "name": "John Doe"}],
   "rowCount": 1,
   "command": "SELECT",
-  "fields": [{"name": "id", "dataTypeID": 23}, {"name": "name", "dataTypeID": 25}]
+  "fields": [{"name": "id"}, {"name": "name"}]
 }
 ```
 
@@ -227,10 +181,6 @@ Check the health of the service.
 
 MIT
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ---
 
-*Built with ❤️ using TypeScript, Express, and PostgreSQL*
+*Built with TypeScript, Express, and PostgreSQL*
