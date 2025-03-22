@@ -48,8 +48,8 @@ if (!envLoaded) {
 
 // Check for required environment variables
 if (!process.env.DATABASE_URL) {
-  console.warn('DATABASE_URL not found in environment. Using default connection string.');
-  process.env.DATABASE_URL = "postgres://postgres:nVaQbzbAjHI2hpJKEMgG8VqlQhHtCxRQWMET7PXEoGqKO48olH2fdYCx3IGmja33@82.115.21.136:1205/postgres";
+  console.error('DATABASE_URL not found in environment. Please add DATABASE_URL to your .env.local or .env file.');
+  throw new Error('Missing required environment variable: DATABASE_URL');
 }
 
 if (!process.env.API_KEY) {
