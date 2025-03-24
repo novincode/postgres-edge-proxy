@@ -34,7 +34,7 @@ Many modern deployment environments (Cloudflare Workers, Vercel Edge Functions, 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/postgres-edge-proxy.git
+git clone https://github.com/novincode/postgres-edge-proxy.git
 cd postgres-edge-proxy
 
 # Install dependencies
