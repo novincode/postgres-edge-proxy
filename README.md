@@ -129,6 +129,35 @@ import * as schema from './schema';
 const db = drizzle(proxyQueryFn, { schema });
 ```
 
+### Integration with Drizzle ORM
+
+This proxy is compatible with Drizzle ORM's HTTP proxy client:
+
+```typescript
+// db.ts
+import { drizzle } from 'drizzle-orm/pg-proxy';
+import { migrate } from 'drizzle-orm/pg-proxy/migrator';
+import * as schema from './schema';
+
+// Create connection to your proxy
+const client = {
+  url: "https://your-proxy-url/query",
+  headers: {
+    "X-API-Key": "your-api-key-here"
+  },
+  // Optional: default fetch options
+  fetch: {
+    cache: "no-store",
+  }
+};
+
+// Create Drizzle ORM instance
+export const db = drizzle(client, { schema });
+
+// Usage in your app
+const users = await db.select().from(schema.users);
+```
+
 ## 🚢 Deployment Strategies
 
 For optimal performance, deploy the proxy close to your database:

@@ -58,3 +58,32 @@ proxyRouter.post('/db-proxy', async (req: Request, res: Response, next: NextFunc
     next(error);
   }
 });
+
+// Drizzle ORM compatible endpoint
+proxyRouter.post('/query', async (req: Request, res: Response) => {
+  try {
+    const { sql, params, method } = req.body;
+    
+    if (!sql) {
+      return res.status(400).json({ error: 'Missing required parameter: sql' });
+    }
+    
+    // Prevent multiple queries as shown in Drizzle docs
+    const sqlBody = sql.replace(/;/g, '');
+    
+    // Execute query with proper row mode for Drizzle compatibility
+    const result = await executeQuery(
+      sqlBody, 
+      params || [], 
+      method === 'all' ? 'array' : undefined
+    );
+    
+    // Just return the rows (not the full result object)
+    return res.json(result.rows);
+  } catch (error) {
+    logger.error('Drizzle query execution error:', error);
+    return res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    });
+  }
+});
