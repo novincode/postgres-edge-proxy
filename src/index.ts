@@ -2,19 +2,15 @@
  * Entry point for the Edge Proxy application
  * @module index
  */
-// Load environment variables first before anything else
-
-import { createServer } from './server'; 
+import { createServer } from './server';
 import { logger } from './utils/logger';
 import { env } from './config/env';
 
-const port = parseInt(env.PORT);
+const port = parseInt(env.PORT || '3001');
 
 async function startServer() {
   try {
-    // Database URL is already logged in env.ts
-    
-    const app = createServer();
+    const app = await createServer();
     app.listen(port, () => {
       logger.info(`Edge Proxy server running at http://localhost:${port}`);
     });

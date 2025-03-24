@@ -4,6 +4,7 @@
  */
 import { Request, Response, NextFunction } from 'express';
 import { env } from '../config/env';
+import { logger } from '../utils/logger';
 
 /**
  * API key authentication middleware
@@ -15,14 +16,22 @@ export function authenticateApiKey(req: Request, res: Response, next: NextFuncti
 
   // Check if API key is provided
   if (!apiKey) {
-    res.status(401);
-    return next(new Error('API key is required'));
+    logger.warn('Authentication failed: No API key provided', {
+      path: req.path,
+      method: req.method,
+      ip: req.ip
+    });
+    return res.status(401).json({ error: 'API key is required' });
   }
 
   // Validate API key
   if (apiKey !== env.API_KEY) {
-    res.status(403);
-    return next(new Error('Invalid API key'));
+    logger.warn('Authentication failed: Invalid API key', {
+      path: req.path,
+      method: req.method,
+      ip: req.ip
+    });
+    return res.status(403).json({ error: 'Invalid API key' });
   }
 
   // If valid, proceed to the next middleware

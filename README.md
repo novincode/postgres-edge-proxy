@@ -16,6 +16,7 @@ Many modern deployment environments (Cloudflare Workers, Vercel Edge Functions, 
 - **Edge & serverless compatible** - works where TCP database connections aren't possible
 - **Simple fetch API** with JSON responses
 - **TypeScript support** with full type safety
+- **Drizzle ORM Compatible** - fully supports Drizzle's pg-proxy adapter
 
 ## 🔐 Why Use This?
 
@@ -56,7 +57,7 @@ Create a `.env.local` file with your configuration:
 
 ```bash
 # Required
-API_KEY="your-secure-api-key"
+API_KEY="your-secure-api-key"          # This is the API key your clients will use
 DATABASE_URL="postgres://username:password@hostname:port/database"
 
 # Optional
@@ -69,81 +70,75 @@ DB_IDLE_TIMEOUT=30000
 
 ## 🌐 Usage Examples
 
-### Simple Client
-
-```typescript
-// Basic client example
-async function queryDatabase(sql, params = []) {
-  const response = await fetch('https://your-proxy-url/db-proxy', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': 'your-api-key-here'
-    },
-    body: JSON.stringify({ query: sql, params })
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Query failed: ${await response.text()}`);
-  }
-  
-  return response.json();
-}
-
-// Usage
-const users = await queryDatabase('SELECT * FROM users WHERE id = $1', [123]);
-console.log(users.rows);
-```
-
-### Integration with ORMs
-
-This proxy can be used with any ORM that supports custom database adapters. Here's how you could integrate it with Drizzle ORM:
-
-```typescript
-// db-client.ts
-export async function proxyQueryFn(sql: string, params: any[] = []) {
-  const response = await fetch('https://your-proxy-url/db-proxy', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'X-API-Key': process.env.DB_API_KEY || '',
-    },
-    body: JSON.stringify({
-      query: sql,
-      params: params
-    }),
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Database query failed: ${await response.text()}`);
-  }
-  
-  return response.json();
-}
-
-// Then integrate with your ORM of choice
-// For Drizzle example:
-import { drizzle } from 'drizzle-orm/neon-http';
-import * as schema from './schema';
-
-const db = drizzle(proxyQueryFn, { schema });
-```
-
 ### Integration with Drizzle ORM
 
-This proxy is compatible with Drizzle ORM's HTTP proxy client:
+This proxy is designed to be compatible with Drizzle ORM's pg-proxy adapter. Here's how to connect:
 
 ```typescript
 // db.ts
 import { drizzle } from 'drizzle-orm/pg-proxy';
-import { migrate } from 'drizzle-orm/pg-proxy/migrator';
+import * as schema from './schema';
+
+// Environment variables
+const DB_PROXY_URL = process.env.DB_PROXY_URL || 'http://localhost:3001/query';
+const DB_API_KEY = process.env.DB_API_KEY || ''; // Must match API_KEY in edge-proxy
+
+export const db = drizzle(
+  async (sql, params, method) => {
+    try {
+      console.log(`[DB] Executing ${method}: ${sql.substring(0, 100)}...`);
+      
+      if (!DB_API_KEY) {
+        throw new Error('DB_API_KEY is required');
+      }
+      if (!DB_PROXY_URL) {
+        throw new Error('DB_PROXY_URL is required');
+      }
+
+      // Send request to the proxy
+      const response = await fetch(DB_PROXY_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': DB_API_KEY
+        },
+        body: JSON.stringify({ sql, params, method })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Database error (${response.status}): ${errorText}`);
+      }
+
+      // Parse the JSON response
+      const data = await response.json();
+      return { rows: data };
+    } catch (e: any) {
+      console.error('Error from pg proxy server: ', e.message);
+      return { rows: [] };
+    }
+  },
+  { schema } // Pass your schema here
+);
+
+// Usage in your app
+const users = await db.select().from(schema.users);
+```
+
+### Alternative Drizzle ORM Integration (Simplified)
+
+You can also use the built-in client from Drizzle:
+
+```typescript
+// db.ts
+import { drizzle } from 'drizzle-orm/pg-proxy';
 import * as schema from './schema';
 
 // Create connection to your proxy
 const client = {
   url: "https://your-proxy-url/query",
   headers: {
-    "X-API-Key": "your-api-key-here"
+    "X-API-Key": process.env.DB_API_KEY // Must match API_KEY in edge-proxy
   },
   // Optional: default fetch options
   fetch: {
@@ -158,6 +153,12 @@ export const db = drizzle(client, { schema });
 const users = await db.select().from(schema.users);
 ```
 
+## ⚠️ Important Notes
+
+- The `DB_API_KEY` in your client application must match the `API_KEY` configured in your edge-proxy server
+- All requests must use the `/query` endpoint format for Drizzle compatibility
+- Make sure your proxy is deployed in a secure environment, ideally close to your database
+
 ## 🚢 Deployment Strategies
 
 For optimal performance, deploy the proxy close to your database:
@@ -169,9 +170,9 @@ For optimal performance, deploy the proxy close to your database:
 
 ## 📝 API Reference
 
-### POST /db-proxy
+### POST /query
 
-Execute a SQL query against the database.
+Execute a SQL query against the database using the Drizzle-compatible format.
 
 **Request Headers:**
 - `Content-Type: application/json`
@@ -180,19 +181,17 @@ Execute a SQL query against the database.
 **Request Body:**
 ```json
 {
-  "query": "SELECT * FROM users WHERE id = $1",
-  "params": [123]
+  "sql": "SELECT * FROM users WHERE id = $1",
+  "params": [123],
+  "method": "all"
 }
 ```
 
 **Response:**
 ```json
-{
-  "rows": [{"id": 123, "name": "John Doe"}],
-  "rowCount": 1,
-  "command": "SELECT",
-  "fields": [{"name": "id"}, {"name": "name"}]
-}
+[
+  {"id": 123, "name": "John Doe"}
+]
 ```
 
 ### GET /health

@@ -8,12 +8,16 @@ import helmet from 'helmet';
 import { proxyRouter } from './routes/proxy';
 import { errorHandler } from './middleware/error-handler';
 import { authenticateApiKey } from './middleware/auth';
+import { initDatabase } from './config/database';
 
 /**
  * Creates and configures an Express application
- * @returns {Application} Configured Express application
+ * @returns {Promise<Application>} Configured Express application
  */
-export function createServer(): Application {
+export async function createServer(): Promise<Application> {
+  // Initialize database connection
+  await initDatabase();
+  
   const app = express();
 
   // Middleware
